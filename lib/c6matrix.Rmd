@@ -1,0 +1,65 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(text2vec, dplyr, qlcMatrix, kernlab, knitr)
+
+setwd("~/Documents/ADS/Spr2017-proj4-team10")
+AKumar <- data.frame(scan("../data/nameset/AKumar.txt",
+                          what = list(Coauthor = "", Paper = "", Journal = ""),
+                          sep=">", quiet=TRUE),stringsAsFactors=FALSE)
+# This need to be modified for different name set
+
+# extract canonical author id befor "_"
+AKumar$AuthorID <- sub("_.*","",AKumar$Coauthor)
+# extract paper number under same author between "_" and first whitespace
+AKumar$PaperNO <- sub(".*_(\\w*)\\s.*", "\\1", AKumar$Coauthor)
+# delete "<" in AKumar$Coauthor, you may need to further process the coauthor
+# term depending on the method you are using
+AKumar$Coauthor <- gsub("<","",sub("^.*?\\s","", AKumar$Coauthor))
+# delete "<" in AKumar$Paper
+AKumar$Paper <- gsub("<","",AKumar$Paper)
+# add PaperID for furthur use, you may want to combine all the nameset files and 
+# then assign the unique ID for all the citations
+AKumar$PaperID <- rownames(AKumar)
+
+```
+
+Start to build M matric
+```{r}
+n<-nrow(AKumar)[1]
+Mp<-diag(x=1,nrow = n, ncol = n)
+coauthor<-unlist(strsplit(AKumar$Coauthor,split=";"))
+# GET CoAuthor
+coauthor<-unique(coauthor)[-1]
+
+# get name of author :
+coauthor<-ifelse(substr(coauthor,1,1)==" ",substr(coauthor,2,nchar(coauthor)),coauthor)
+coauthor<-ifelse(substr(coauthor,nchar(coauthor),nchar(coauthor))==" ",substr(coauthor,1,nchar(coauthor)-1),coauthor)
+len_coa<-length(coauthor)
+Mpa<-matrix(NA, n, len_coa)
+
+for(i in 1:len_coa){
+  for(j in 1:n){
+    Mpa[j,i]<-grepl(coauthor[i],AKumar$Coauthor[j])
+  }
+}
+
+Mpa<-ifelse(Mpa==TRUE,1,0)
+
+Ma<-diag(x=1,len_coa,len_coa)
+for(i in 1:len_coa){
+  for(j in 1:len_coa){
+    Ma[i,j]=sum(which(Mpa[,i]==1)%in%which(Mpa[,j]==1))
+  }
+}
+Ma<-ifelse(Ma>0,1,0)
+
+M1<-cbind(Mp,Mpa)
+M2<-cbind(t(Mpa),Ma)
+M<-rbind(M1,M2)
+```
+
