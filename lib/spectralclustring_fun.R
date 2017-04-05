@@ -1,8 +1,9 @@
 #Spring 2017, Project 4, Group 10
 #Spectral Cluster Function for paper 3
 
-myspectralCluster<-function(x,centers,kernel = "rbfdot"){
+myspectralCluster<-function(x,centers){
   ##x--a matrix
+  kernel = "rbfdot"
   myiter = 200
   mymod_s =  0.75
 
@@ -68,10 +69,6 @@ myspectralCluster<-function(x,centers,kernel = "rbfdot"){
   
   ## Compute Affinity Matrix
   km <- kernelMatrix(kernel, x)
-
-  ##
-  if(is(kernel)[1] == "rbfkernel")
-    diag(km) <- 0
   
   d <- 1/sqrt(rowSums(km))
   l <- d * km %*% diag(d)
