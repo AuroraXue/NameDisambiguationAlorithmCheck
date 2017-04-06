@@ -1,0 +1,198 @@
+---
+title: "Untitled"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(text2vec, dplyr, qlcMatrix, kernlab, knitr,tm,plyr)
+setwd("/Users/apple/Documents/R/Spr2017-proj4-team10/data/nameset")
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r read-in txt}
+read_citation <- function(filename){
+  #name <- deparse(substitute(filename))
+  citation <- read.csv(filename,
+                  header = F,
+                  sep = "\n")    
+ #remove symbols disturbing split
+  rule = "<([[:alpha:]]|[[:punct:]]){1,4}>"
+  citation$V1 = gsub(rule,"",citation$V1)
+  rule1 = ">([[:alpha:]]){1,5}:"
+  citation$V1 = gsub(rule1,">",citation$V1)
+  #change the environment so we can split the citation
+  Sys.setlocale('LC_ALL','C')
+  #split the rows by ">""
+  L <- strsplit(citation$V1,split = ">")
+  #create a vector
+  citation$Coauthor = laply(L,function(t) t[1])
+  citation$Paper = laply(L,function(t) t[2])
+  citation$Journal = laply(L,function(t) t[3])
+  
+  # extract canonical author id befor "_"
+  citation$AuthorID <- as.numeric(sub("_.*","",citation$Coauthor))
+  # extract paper number under same author between "_" and first whitespace
+  citation$PaperNO <- as.numeric(sub(".*_(\\w*)\\s.*", "\\1", citation$Coauthor))
+  # delete "<" in AKumar$Coauthor, you may need to further process the coauthor
+  # term depending on the method you are using
+  citation$Coauthor <- gsub("<","",sub("^.*?\\s","", citation$Coauthor))
+  # delete "<" in AKumar$Paper
+  citation$Paper <- gsub("<","",citation$Paper)
+  # add PaperID for furthur use, you may want to combine all the nameset files and 
+  # then assign the unique ID for all the citations
+  citation$PaperID <- rownames(citation)
+  return(citation)
+}
+
+file_names <- list.files(pattern = "*.txt")
+Data = list()
+for(i in 1:length(file_names)){
+  Data[[i]]= read_citation(file_names[i])
+}
+names(Data) = file_names
+
+```
+
+temp = list.files(pattern="*.txt")
+myfiles = lapply(temp, read.delim)
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r compute DTM, echo=FALSE}
+it_train <- itoken(AKumar$Paper, 
+             preprocessor = tolower, 
+             tokenizer = word_tokenizer,
+             ids = AKumar$PaperID,
+             # turn off progressbar because it won't look nice in rmd
+             progressbar = FALSE)
+vocab <- create_vocabulary(it_train, stopwords = c("a", "an", "the", "in", "on",
+                                                   "at", "of", "above", "under"))
+#create dtm
+vectorizer <- vocab_vectorizer(vocab)
+dtm_train <- create_dtm(it_train, vectorizer)
+tfidf <- TfIdf$new()
+dtm_train_tfidf <- fit_transform(dtm_train, tfidf)
+
+idf_max<-apply(dtm_train,2,max)
+
+for(i in 1:nrow(dtm_train)){
+  for(j in 1:ncol(dtm_train)){
+    dtm_train_ntf[i,j]<-dtm_train[i,j]/idf_max[i]
+  }
+  
+}
+
+```
+
+
+
+```{r spectral cluster}
+set.see(1)
+test2 <- spectralCluster(as.matrix(dtm_train_tfidf), 
+                       centers=length(unique(AKumar$AuthorID)))
+myspectralCluster<-function(x,centers,kernel = "rbfdot"){
+  ##x--a matrix
+  nystrom.sample = dim(x)[1]/6
+  iterations = 200
+  mod.sample =  0.75
+
+  #take na out of x matrix
+  x <- na.omit(x)
+  rown <- rownames(x)
+  x <- as.matrix(x)
+  #number of dataset
+  m <- nrow(x)
+  #number of centers:
+  nc <- centers
+    #dim(centers)[2]
+  
+  #################################
+
+  sam <- sample(1:m, floor(mod.sample*m))
+  
+  sx <- unique(x[sam,])
+  ns <- dim(sx)[1]
+  dota <- rowSums(sx*sx)/2
+  ktmp <- crossprod(t(sx))
+  for (i in 1:ns)
+    ktmp[i,]<- 2*(-ktmp[i,] + dota + rep(dota[i], ns))
+  
+  
+  ## fix numerical prob.
+  ktmp[ktmp<0] <- 0
+  ktmp <- sqrt(ktmp)
+  
+  kmax <- max(ktmp)
+  kmin <- min(ktmp + diag(rep(Inf,dim(ktmp)[1])))
+  kmea <- mean(ktmp)
+  lsmin <- log2(kmin)
+  lsmax <- log2(kmax)
+  midmax <- min(c(2*kmea, kmax))
+  midmin <- max(c(kmea/2,kmin))
+  rtmp <- c(seq(midmin,0.9*kmea,0.05*kmea), seq(kmea,midmax,0.08*kmea))
+  if ((lsmax - (Re(log2(midmax))+0.5)) < 0.5){
+    step <- (lsmax - (Re(log2(midmax))+0.5))}else
+    {step <- 0.5}
+  if (((Re(log2(midmin))-0.5)-lsmin) < 0.5 ) stepm <-  ((Re(log2(midmin))-0.5) - lsmin) else stepm <- 0.5
+  
+  tmpsig <- c(2^(seq(lsmin,(Re(log2(midmin))-0.5), stepm)), rtmp, 2^(seq(Re(log2(midmax))+0.5, lsmax,step)))
+  diss <- matrix(rep(Inf,length(tmpsig)*nc),ncol=nc)
+  
+  for (i in 1:length(tmpsig)){
+    ka <- exp((-(ktmp^2))/(2*(tmpsig[i]^2)))
+    diag(ka) <- 0
+    
+    d <- 1/sqrt(rowSums(ka))
+    
+    if(!any(d==Inf) && !any(is.na(d))&& (max(d)[1]-min(d)[1] < 10^4))
+    {
+      l <- d * ka %*% diag(d)
+      xi <- eigen(l,symmetric=TRUE)$vectors[,1:nc]
+      yi <- xi/sqrt(rowSums(xi^2))
+      res <- kmeans(yi, centers, iterations)
+      diss[i,] <- res$withinss
+    }
+  }
+  
+  ms <- which.min(rowSums(diss))
+  kernel <- rbfdot((tmpsig[ms]^(-2))/2)
+  
+  ## Compute Affinity Matrix
+  km <- kernelMatrix(kernel, x)
+
+  ##
+  if(is(kernel)[1] == "rbfkernel")
+    diag(km) <- 0
+  
+  d <- 1/sqrt(rowSums(km))
+  l <- d * km %*% diag(d)
+  xi <- eigen(l)$vectors[,1:nc]
+  yi <- xi/sqrt(rowSums(xi^2))
+  res <- kmeans(yi, centers, iterations)
+  
+  ##return
+  cent <- matrix(unlist(lapply(1:nc,ll<- function(l){colMeans(x[which(res$cluster==l), ,drop=FALSE])})),ncol=dim(x)[2], byrow=TRUE)
+  
+  withss <- unlist(lapply(1:nc,ll<- function(l){sum((x[which(res$cluster==l),, drop=FALSE] - cent[l,])^2)}))
+  names(res$cluster) <- rown
+  mylist<-list(myData=res$cluster,clusters = res$size,withinss=withss)
+  #myData contains the cluster group of each data point
+  #clusters contains the number of points in each clusters
+  return(mylist)
+}
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
