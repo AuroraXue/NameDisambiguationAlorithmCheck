@@ -60,48 +60,60 @@ names(Data) = file_names
 
 ```
 
-temp = list.files(pattern="*.txt")
-myfiles = lapply(temp, read.delim)
 
-
-```
-
-## Including Plots
-
-You can also embed plots, for example:
 
 ```{r compute DTM, echo=FALSE}
-it_train <- itoken(AKumar$Paper, 
+#vectorize paper tities & create dtm
+vocabulary<-function(file,variable){
+it_train <- itoken(file$variable, 
              preprocessor = tolower, 
              tokenizer = word_tokenizer,
-             ids = AKumar$PaperID,
+             ids = file$PaperID,
              # turn off progressbar because it won't look nice in rmd
              progressbar = FALSE)
-vocab <- create_vocabulary(it_train, stopwords = c("a", "an", "the", "in", "on",
+vocab <- create_vocabulary(it_train, stopwords = c("a", "an", "the", "in", "on","for",
                                                    "at", "of", "above", "under"))
-#create dtm
 vectorizer <- vocab_vectorizer(vocab)
-dtm_train <- create_dtm(it_train, vectorizer)
-tfidf <- TfIdf$new()
-dtm_train_tfidf <- fit_transform(dtm_train, tfidf)
-
-idf_max<-apply(dtm_train,2,max)
-
-for(i in 1:nrow(dtm_train)){
-  for(j in 1:ncol(dtm_train)){
-    dtm_train_ntf[i,j]<-dtm_train[i,j]/idf_max[i]
-  }
-  
+dtm_train <- as.matrix(create_dtm(it_train, vectorizer))
+return(dtm_train)
 }
 
+#apply the function to create dtm
+#for(i in 1:length(file_names))
+dtm <- vocabulary(Data[[1]])
+
+#Tf-Idf
+tfidf <- TfIdf$new()
+dtm_tfidf <- as.matrix(fit_transform(dtm, tfidf))
+
+#NTF
+dtm_tf<-apply(dtm,1,function(term) term/sum(term))
+dtm_ntf<-as.matrix(apply(tf,1,function(term) term/max(term)))
+
+# normal_freq<-function(matrix){
+#   ntf<-matrix(nrow(matrix),ncol(matrix))
+#   for(i in 1:nrow(matrix)){
+#     for(j in 1:ncol(matrix)){
+#       times<-matrix[i,j]
+#       sum<-sum(matrix[i,])
+#       matrix[i,j]<-times/sum
+#     }
+#   }
+#   for(i in 1:nrow(matrix)){
+#     for(j in 1:ncol(matrix)){
+#       max_freq<-NULL
+#       max_freq[j]<-max(matrix[,j])
+#       ntf[i,j]<-matrix[i,j]/max_freq[j]
+#     }
+#   }
+#   return(ntf)
+# }
+#dtm_ntf<-apply(Data, normal_freq(x),Data[[i]])
 ```
 
 
 
 ```{r spectral cluster}
-set.see(1)
-test2 <- spectralCluster(as.matrix(dtm_train_tfidf), 
-                       centers=length(unique(AKumar$AuthorID)))
 myspectralCluster<-function(x,centers,kernel = "rbfdot"){
   ##x--a matrix
   nystrom.sample = dim(x)[1]/6
@@ -192,7 +204,27 @@ myspectralCluster<-function(x,centers,kernel = "rbfdot"){
   #clusters contains the number of points in each clusters
   return(mylist)
 }
+
+set.seed(1)
+cluster_tfidf <- myspectralCluster(as.matrix(dtm_tfidf), 
+                       centers=length(unique(Data[[1]]$AuthorID)))
+cluster_ntf <- myspectralCluster(as.matrix(dtm_ntf), 
+                       centers=length(unique(Data[[1]]$AuthorID)))
 ```
 
+```{r evaluation}
+source('~/Dropbox/Project4_WhoIsWho/lib/evaluation_measures.R')
+matching_matrix_hclust <- matching_matrix(AKumar$AuthorID,result_hclust)
+performance_hclust <- performance_statistics(matching_matrix_hclust)
+matching_matrix_sclust <- matching_matrix(AKumar$AuthorID,result_sclust)
+performance_sclust <- performance_statistics(matching_matrix_sclust)
+compare_df <- data.frame(method=c("sClust","hClust"),
+                         precision=c(performance_sclust$precision, performance_hclust$precision),
+                         recall=c(performance_sclust$recall, performance_hclust$recall),
+                         f1=c(performance_sclust$f1, performance_hclust$f1),
+                         accuracy=c(performance_sclust$accuracy, performance_hclust$accuracy),
+                         time=c(time_sclust,time_hclust))
+kable(compare_df,caption="Comparision of performance for two clustering methods",digits = 2)
+```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
