@@ -2,7 +2,9 @@ source("lib/Extract Coauthors.R")
 #unique_Coauthors_list
 #Coauthors_list
 
-M_prod<-function(list,coauthor){
+M_prod<-function(index,tao){
+  list<-Coauthors_list[[index]]
+  coauthor<-unique_Coauthors_list[[index]]
   n<-length(list)
   len_coa<-length(coauthor)
   Mp<-diag(x=1,nrow = n, ncol = n)
@@ -28,9 +30,10 @@ M_prod<-function(list,coauthor){
   
   M1<-cbind(Mp,Mpa)
   M2<-cbind(t(Mpa),Ma)
-  M<-rbind(M1,M2)
-  
-  return(M)
+  M0<-rbind(M1,M2)
+  M<-M0
+  for(j in 1: tao){
+    M=M%*%M0
+  }
+  return(M[1:n,1:n])
 }
-
-M_1 <- M_prod(Coauthors_list[[1]],unique_Coauthors_list[[1]])
