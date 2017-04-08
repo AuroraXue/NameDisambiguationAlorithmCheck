@@ -88,27 +88,18 @@ for(i in 1:length(data.files)){
 }
 names(data_list) <- query.list
 
-
-#for each of the 14 .txt files, get a list of coauthor vectors per each .txt
 Coauthors_list <- list()
+#for each of the 14 .txt files, get a list of vectors of unique coauthors per each .txt
+unique_Coauthors_list <- list()
 for (i in 1:14){
-  Coauthors_list[[i]] <- unique(unlist(sapply(data_list[[i]],function(my.list){str_to_title(my.list[[3]])})))
+  Coauthors_list[[i]] <- sapply(data_list[[i]],function(my.list){str_to_title(my.list[[3]])})
+  Coauthors_list[[i]] <- sapply(Coauthors_list[[i]],function(my.list){gsub("Na ",NA,my.list)})
+  unique_Coauthors_list[[i]] <- unique(unlist(Coauthors_list[[i]]))
+  #remove NA's from list of unique coauthors 
+  unique_Coauthors_list[[i]] <- unique_Coauthors_list[[i]][-which(is.na(unique_Coauthors_list[[i]]))]
 }
-names(Coauthors_list) <- query.list #name each item of list by main author
+names(unique_Coauthors_list) <- query.list #name each item of list by main author
+names(Coauthors_list) <- query.list 
 
-#i.e. each item is a vector of strings of coauthor names which we can pull out individually
-AGupta.Coauthors <- Coauthors_list[[1]]
-AKumar.Coauthors <- Coauthors_list[[2]]
-CChen.Coauthors <- Coauthors_list[[3]]
-DJohnson.Coauthors <- Coauthors_list[[4]]
-JLee.Coauthors <- Coauthors_list[[5]]
-JMartin.Coauthors <- Coauthors_list[[6]]
-JRobinson.Coauthors <- Coauthors_list[[7]]
-JSmith.Coauthors <- Coauthors_list[[8]]
-KTanaka.Coauthors <- Coauthors_list[[9]]
-MBrown.Coauthors <- Coauthors_list[[10]]
-MJones.Coauthors <- Coauthors_list[[11]]
-MMiller.Coauthors <- Coauthors_list[[12]]
-SLee.Coauthors <- Coauthors_list[[13]]
-YChen.Coauthors <- Coauthors_list[[14]]
+#Coauthors_perPaper <- lapply(Coauthors_list,function(my.list){data.table(Coauthors=my.list)})
 
