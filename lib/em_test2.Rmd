@@ -1,0 +1,220 @@
+---
+title: "em_test2"
+author: "Yitong Hu  (yh2875)"
+date: "2017/4/8"
+output: html_document
+---
+
+
+Need input: 
+1.M as a matrix of 244 * 244 ( use tao = 1 - coauthor constrain )
+2.dtm 
+
+```{r}
+source("../lib/customized_function.R")
+```
+
+
+```{r}
+dtm<-dtm_train_tfidf
+n<-nrow(dtm)
+#M_p<-constrain.mat(feature_mat = AKumar,1)[1:n,1:n]
+M_p<-MP1
+```
+
+
+initialize cluster:
+
+```{r}
+tag<-rep(0,n)  ## initialize tag for 244 papers
+class<-1
+index<- M_p[1,] >= 1
+tag[index]<-class
+class <- class + 1
+
+for (row in 2:n)
+{
+  if (tag[row]!=0) {next}
+  index<- M_p[row,] >= 1
+  tag[index]<-class
+  class <- class + 1
+}
+
+
+
+## adjust the number of clusters according to the actual researcher number k 
+
+lambda <- length( unique(tag) )
+#filename <- "AKumar"
+k <- length(unique(AKumar$AuthorID))  
+## output : tag as a vector of length n
+
+## need update y_h & tag in this step
+
+## now y_h in a matrix in the essay:(dim) lambda * 666(ncol of x(dtm)) 
+## need update as a matrix : k * 666(ncol of x(dtm)) 
+
+## tag is a vector with lambda level
+## need update to k level
+
+
+if (lambda >= k){   ## need substract lambda - k
+  
+while (lambda > k)
+{
+y_h<-matrix(NA,lambda,ncol(dtm))  ## y_h in a matrix in the essay:(dim) the number of clusters * 666(ncol of x(dtm))
+j=1
+
+for (k in unique(tag))   ## re-adjust for k clusters
+{
+  index<-which(tag == k)
+  if (length(index)==1) {y_h[j,]<-dtm[index,]}
+  else{y_h[j,]<-apply(dtm[index,],2,mean)}
+  j<-j+1
+}
+
+dist<-matrix(NA,nrow(y_h),nrow(y_h))  ## 130*130 matrix : distance of each cluster
+  for (i in 1:nrow(y_h))
+  {
+    for (j in i:nrow(y_h))
+    {
+      if (i==j) {dist[i,j]<-100}else
+      {dist[i,j]<-dist(rbind(y_h[i,],y_h[j,]), method= "euclidian")}
+    }
+  }
+
+lambda <- length( unique(tag) )
+k <- length(unique(AKumar$AuthorID)) 
+
+   i<-1
+ 
+  while (lambda > k)
+  {
+    #index<-which(tag > k)
+    #tag[index]<-k
+    tag_merge<-which.min(dist[i,])  ## choose the tag to merge with the ith tag
+    index<- tag == unique(tag)[tag_merge]
+    tag[index]<-i
+    i=i+1
+    lambda <- length( unique(tag) )
+    if (i>lambda){break}
+  }
+   tag<-tag[order(tag)]
+   M_p<-M_p[order(tag),]
+   dtm<-dtm[order(tag),]
+}
+
+    
+}else
+  {  ## need add k - lambda
+  tag[length(tag)-k+lambda+1:length(tag)]<-seq(lambda+1,k)}
+
+
+### simple check:should be 14
+length(unique(tag))
+```
+
+
+em iteration:
+
+initialize
+
+```{r}
+size<-0.01
+D_xx<-matrix(ncol=n,nrow=n)  ## 244 * 244
+D_xx_deriv<-matrix(ncol=n,nrow=n)  ## 244 * 244
+c<-M_p
+n<-nrow(dtm)  ## number of papers 244
+m<-ncol(dtm)  ## 666
+A<-rep(1,m)  ## 666 * 666
+eta <- 0.01 ## need tune later
+```
+
+
+```{r}
+distance<-rep(10000,length(unique(tag)))
+
+while(sum(distance) > size)
+{
+  part<-matrix(ncol=n,nrow=n)
+
+  ##### count D_xx
+  for (i in 1:n){
+  for (j in i:n){
+    part[i,j]<-sum( t(dtm[i,]) * A * dtm[j,] )/( sqrt(sum(t(dtm[i,]) * A * dtm[i,])) *sqrt(sum(t(dtm[j,]) * A * dtm[j,])) )  
+    D_xx[i,j]<- 1 - part[i,j]
+  }}
+   D_xx[lower.tri( D_xx )] = t( D_xx )[lower.tri( D_xx )]
+   part[lower.tri( part )] = t( part )[lower.tri( part )]
+  
+  uni.tag<-unique(tag)
+  
+  ##### adjust for x_i's tag
+
+for (i in 1:n)  
+{
+  ## input : initialized cluster(tag)
+  
+  f.xi<-rep(NA,length(uni.tag))  ## f for trying x_i's all tags.
+  j=1
+  for (k in uni.tag)   ## substitute x_i's tag by tag "k"
+  {
+    newtag <- tag
+    newtag[i]<-k
+    f.xi[j]<-f(tagvec=newtag,paperindex=i)
+    j<-j+1
+  }
+  tag[i]<-uni.tag[which.min(f.xi)]
+}
+  
+  ##### update researcher representative(cluster centers)
+
+
+uni.tag<-unique(tag)
+
+y_h<-matrix(NA,length(uni.tag),ncol(dtm))  ## y_h in a matrix in the essay:(dim) the number of clusters * 666(ncol of x(dtm))
+j=1
+
+for (k in uni.tag)   ## re-adjust for k clusters
+{
+  index<-which(tag == k)
+  if (length(index)==1) {y_h[j,]<-dtm[index,]}
+  else{y_h[j,]<-apply(dtm[index,],2,mean)}
+  j<-j+1
+}
+
+##### update a_mm
+
+for (i in 1:n){
+    for (j in i:n){
+      part1<- dtm[i,m]^2 * sum(t(dtm[j,]) * A * dtm[j,]) + dtm[j,m]^2 * sum(t(dtm[i,]) * A * dtm[i,])
+      D_xx_deriv[i,j]<- dtm[i,m]*dtm[j,m]*( sqrt(sum(t(dtm[i,]) * A * dtm[i,])) * sqrt(sum(t(dtm[j,]) * A *dtm[j,])) )- part1 * part[i,j]/2
+      D_xx_deriv[i,j]<-D_xx_deriv[i,j] /(sum(t(dtm[i,]) * A * dtm[i,])*sum(t(dtm[j,]) * A * dtm[j,]))
+    }}
+ D_xx_deriv[lower.tri( D_xx_deriv )] = t( D_xx_deriv )[lower.tri( D_xx_deriv )]
+
+M<-length(A)
+for (m in 1:M)
+{
+  deriv.f<-sum( rowSums(D_xx_deriv * M_p) )
+  A[m] <- A[m] + eta * deriv.f
+}
+
+##### stop-iteration condition 
+if (exists("y_h"))
+{
+  y_h_former<-matrix(NA,length(uni.tag),ncol(dtm)) 
+  y_h_former<-y_h
+}
+
+ord.y_h<-y_h[order(y_h[,1]),]
+ord.y_h_former<-y_h_former[order(y_h_former[,1]),]
+
+
+for (i in 1:nrow(ord.y_h))
+{
+  distance[i]<-dist(rbind(ord.y_h[i,],ord.y_h_former[i,]), method= "euclidian")
+}
+ print(distance)
+}
+```
