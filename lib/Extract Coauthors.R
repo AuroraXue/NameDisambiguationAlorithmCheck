@@ -94,6 +94,8 @@ unique_Coauthors_list <- list()
 for (i in 1:14){
   Coauthors_list[[i]] <- sapply(data_list[[i]],function(my.list){str_to_title(my.list[[3]])})
   Coauthors_list[[i]] <- sapply(Coauthors_list[[i]],function(my.list){gsub("Na ",NA,my.list)})
+  #replace character(0) with NA 
+  Coauthors_list[[1]][which(sapply(Coauthors_list[[1]],length) == 0)] <- NA
   unique_Coauthors_list[[i]] <- unique(unlist(Coauthors_list[[i]]))
   #remove NA's from list of unique coauthors 
   unique_Coauthors_list[[i]] <- unique_Coauthors_list[[i]][-which(is.na(unique_Coauthors_list[[i]]))]
