@@ -1,6 +1,6 @@
 library(stringr)
 
-data.lib="../data/nameset"
+data.lib="data/nameset"
 data.files=list.files(path=data.lib, "*.txt")
 #data.files
 
@@ -101,4 +101,7 @@ for (i in 1:14){
   unique_Coauthors_list[[i]] <- unique_Coauthors_list[[i]][-which(is.na(unique_Coauthors_list[[i]]))]
 }
 names(unique_Coauthors_list) <- query.list #name each item of list by main author
-names(Coauthors_list) <- query.list
+names(Coauthors_list) <- query.list 
+
+#Coauthors_perPaper <- lapply(Coauthors_list,function(my.list){data.table(Coauthors=my.list)})
+
