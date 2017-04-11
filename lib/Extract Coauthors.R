@@ -1,6 +1,6 @@
 library(stringr)
 
-data.lib="data/nameset"
+data.lib="../data/nameset"
 data.files=list.files(path=data.lib, "*.txt")
 #data.files
 
