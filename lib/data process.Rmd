@@ -17,214 +17,133 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r read-in txt}
-read_citation <- function(filename){
-  #name <- deparse(substitute(filename))
-  citation <- read.csv(filename,
-                  header = F,
-                  sep = "\n")    
- #remove symbols disturbing split
-  rule = "<([[:alpha:]]|[[:punct:]]){1,4}>"
-  citation$V1 = gsub(rule,"",citation$V1)
-  rule1 = ">([[:alpha:]]){1,5}:"
-  citation$V1 = gsub(rule1,">",citation$V1)
-  #change the environment so we can split the citation
-  Sys.setlocale('LC_ALL','C')
-  #split the rows by ">""
-  L <- strsplit(citation$V1,split = ">")
-  #create a vector
-  citation$Coauthor = laply(L,function(t) t[1])
-  citation$Paper = laply(L,function(t) t[2])
-  citation$Journal = laply(L,function(t) t[3])
-  
-  # extract canonical author id befor "_"
-  citation$AuthorID <- as.numeric(sub("_.*","",citation$Coauthor))
-  # extract paper number under same author between "_" and first whitespace
-  citation$PaperNO <- as.numeric(sub(".*_(\\w*)\\s.*", "\\1", citation$Coauthor))
-  # delete "<" in AKumar$Coauthor, you may need to further process the coauthor
-  # term depending on the method you are using
-  citation$Coauthor <- gsub("<","",sub("^.*?\\s","", citation$Coauthor))
-  # delete "<" in AKumar$Paper
-  citation$Paper <- gsub("<","",citation$Paper)
-  # add PaperID for furthur use, you may want to combine all the nameset files and 
-  # then assign the unique ID for all the citations
-  citation$PaperID <- rownames(citation)
-  return(citation)
+load("/Users/apple/Documents/R/Spr2017-proj4-team10/output/text.Rdata")
+dtm_tfidf<-function(file){
+#vectorize paper tities & create dtm
+source('/Users/apple/Documents/R/Spr2017-proj4-team10/lib/create_dtm.R')
+#to build dtm for different variables, source a different function
+dtm_paper <- vocabulary_Journal(file)
+
+# create tfidf matrix
+dtm_tfidf <- as.matrix(fit_transform(dtm_paper, tfidf))
+tfidf<-as.matrix(dtm_tfidf)
+return(tfidf_mat=tfidf)
 }
 
-file_names <- list.files(pattern = "*.txt")
-Data = list()
-for(i in 1:length(file_names)){
-  Data[[i]]= read_citation(file_names[i])
-}
-names(Data) = file_names
+tfidf <- TfIdf$new()
+freqs_AGupta<-dtm_tfidf(Data$AGupta.txt)
+freqs_AKumar<-dtm_tfidf(Data$AKumar.txt)
+freqs_CChen<-dtm_tfidf(Data$CChen.txt)
+freqs_DJohnson<-dtm_tfidf(Data$DJohnson.txt)
+freqs_JLee<-dtm_tfidf(Data$JLee.txt)
+freqs_JMartin<-dtm_tfidf(Data$JMartin.txt)
+freqs_JRobinson<-dtm_tfidf(Data$JRobinson.txt)
+freqs_JSmith<-dtm_tfidf(Data$JSmith.txt)
+freqs_JTanaka<-dtm_tfidf(Data$KTanaka.txt)
+freqs_MBrown<-dtm_tfidf(Data$MBrown.txt)
+freqs_MJones<-dtm_tfidf(Data$MJones.txt)
+freqs_MMiller<-dtm_tfidf(Data$MMiller.txt)
+freqs_SLee<-dtm_tfidf(Data$SLee.txt)
+freqs_YChen<-dtm_tfidf(Data$YChen.txt)
 
+tfidf_journal<-list(freqs_AGupta,freqs_AKumar,freqs_CChen,freqs_DJohnson,freqs_JLee,freqs_JMartin,freqs_JRobinson,freqs_JSmith,freqs_JTanaka,freqs_MBrown,freqs_MJones,freqs_MMiller,freqs_SLee,freqs_YChen)
+
+names(tfidf_journal)<-result_names
+setwd("/Users/apple/Documents/R/Spr2017-proj4-team10/data/dtm")
+save(tfidf_journal,file="journal_tfidf.Rdata")
 ```
 
 
 
 ```{r compute DTM, echo=FALSE}
+cluster_citation<-function(file){
 #vectorize paper tities & create dtm
-vocabulary<-function(file,variable){
-it_train <- itoken(file$variable, 
-             preprocessor = tolower, 
-             tokenizer = word_tokenizer,
-             ids = file$PaperID,
-             # turn off progressbar because it won't look nice in rmd
-             progressbar = FALSE)
-vocab <- create_vocabulary(it_train, stopwords = c("a", "an", "the", "in", "on","for",
-                                                   "at", "of", "above", "under"))
-vectorizer <- vocab_vectorizer(vocab)
-dtm_train <- as.matrix(create_dtm(it_train, vectorizer))
-return(dtm_train)
+source('/Users/apple/Documents/R/Spr2017-proj4-team10/lib/create_dtm.R')
+dtm_paper <- vocabulary_Paper(file)
+#delete papers whose rowSums are zero
+dtm_paper<-dtm_paper[which(rowSums(dtm_paper)!=0),]
+#adjust the original data to keep the same length
+# file_c<-file[which(rowSums(dtm_paper)!=0),]
+
+# create tfidf matrix
+dtm_tfidf <- as.matrix(fit_transform(dtm_paper, tfidf))
+tfidf<-as.matrix(dtm_tfidf)
+
+#create ntf matrix
+dtm_tf<-apply(dtm_paper,1,function(term) term/sum(term))
+ntf<-as.matrix(apply(dtm_tf,1,function(term) term/max(term)))
+
+#apply spectral cluster function
+source('/Users/apple/Documents/R/Spr2017-proj4-team10/lib/myspectralCluster.R')
+#apply function myspectral cluster
+set.seed(2)
+cluster_tfidf <- myspectralCluster(as.matrix(tfidf), 
+                       centers=length(unique(file$AuthorID)))
+cluster_ntf <- myspectralCluster(as.matrix(ntf), 
+                       centers=length(unique(file$AuthorID)))
+
+return(list(c_tfidf=cluster_tfidf$myData, c_ntf=cluster_ntf$myData))
 }
 
-#apply the function to create dtm
-#for(i in 1:length(file_names))
-dtm <- vocabulary(Data[[1]])
 
-#Tf-Idf
+#apply whole cluster_citation function to do specl
+Start_time<-Sys.time()
 tfidf <- TfIdf$new()
-dtm_tfidf <- as.matrix(fit_transform(dtm, tfidf))
+freqs_AGupta<-cluster_citation(Data$AGupta.txt)
+freqs_AKumar<-cluster_citation(Data$AKumar.txt)
+freqs_CChen<-cluster_citation(Data$CChen.txt)
+freqs_DJohnson<-cluster_citation(Data$DJohnson.txt)
+freqs_JLee<-cluster_citation(Data$JLee.txt)
+freqs_JMartin<-cluster_citation(Data$JMartin.txt)
+freqs_JRobinson<-cluster_citation(Data$JRobinson.txt)
+freqs_JSmith<-cluster_citation(Data$JSmith.txt)
+freqs_JTanaka<-cluster_citation(Data$KTanaka.txt)
+freqs_MBrown<-cluster_citation(Data$MBrown.txt)
+freqs_MJones<-cluster_citation(Data$MJones.txt)
+freqs_MMiller<-cluster_citation(Data$MMiller.txt)
+freqs_SLee<-cluster_citation(Data$SLee.txt)
+freqs_YChen<-cluster_citation(Data$YChen.txt)
+Stop_time<-Sys.time()
+run_time<-Stop_time - Start_time
+result<-list(freqs_AGupta,freqs_AKumar,freqs_CChen,freqs_DJohnson,freqs_JLee,freqs_JMartin,freqs_JRobinson,freqs_JSmith,freqs_JTanaka,freqs_MBrown,freqs_MJones,freqs_MMiller,freqs_SLee,freqs_YChen)
+names(result)<-result_names
 
-#NTF
-dtm_tf<-apply(dtm,1,function(term) term/sum(term))
-dtm_ntf<-as.matrix(apply(tf,1,function(term) term/max(term)))
-
-# normal_freq<-function(matrix){
-#   ntf<-matrix(nrow(matrix),ncol(matrix))
-#   for(i in 1:nrow(matrix)){
-#     for(j in 1:ncol(matrix)){
-#       times<-matrix[i,j]
-#       sum<-sum(matrix[i,])
-#       matrix[i,j]<-times/sum
-#     }
-#   }
-#   for(i in 1:nrow(matrix)){
-#     for(j in 1:ncol(matrix)){
-#       max_freq<-NULL
-#       max_freq[j]<-max(matrix[,j])
-#       ntf[i,j]<-matrix[i,j]/max_freq[j]
-#     }
-#   }
-#   return(ntf)
-# }
-#dtm_ntf<-apply(Data, normal_freq(x),Data[[i]])
-```
+#result_list<-list(ls(pattern='freqs*'))
+#save what we have as Rdata
+setwd("/Users/apple/Documents/R/Spr2017-proj4-team10/output")
+save(result,file="spectralc_result.Rdata")
+# save(freqs_AGupta, file = "AGupta.Rdata")
+# save(freqs_AKumar, file = "AKumar.Rdata")
+# save(freqs_CChen, file = "CChen.Rdata")
+# save(freqs_DJohnson, file = "DJohnson.Rdata")
+# save(freqs_JLee, file = "JLee.Rdata")
+# save(freqs_JMartin, file = "JMartin.Rdata")
+# save(freqs_JRobinson, file="JRobinson.Rdata")
+# save(freqs_JSmith, file = "JSmith.Rdata")
+# save(freqs_JTanaka, file = "JTanaka.Rdata")
+# save(freqs_MBrown, file = "MBrown.Rdata")
+# save(freqs_MJones, file = "MJones.Rdata")
+# save(freqs_MMiller, file = "MMiller.Rdata")
+# save(freqs_SLee, file = "SLee.Rdata")
+# save(freqs_YChen, file = "YChen.Rdata")
 
 
-
-```{r spectral cluster}
-myspectralCluster<-function(x,centers,kernel = "rbfdot"){
-  ##x--a matrix
-  nystrom.sample = dim(x)[1]/6
-  iterations = 200
-  mod.sample =  0.75
-
-  #take na out of x matrix
-  x <- na.omit(x)
-  rown <- rownames(x)
-  x <- as.matrix(x)
-  #number of dataset
-  m <- nrow(x)
-  #number of centers:
-  nc <- centers
-    #dim(centers)[2]
-  
-  #################################
-
-  sam <- sample(1:m, floor(mod.sample*m))
-  
-  sx <- unique(x[sam,])
-  ns <- dim(sx)[1]
-  dota <- rowSums(sx*sx)/2
-  ktmp <- crossprod(t(sx))
-  for (i in 1:ns)
-    ktmp[i,]<- 2*(-ktmp[i,] + dota + rep(dota[i], ns))
-  
-  
-  ## fix numerical prob.
-  ktmp[ktmp<0] <- 0
-  ktmp <- sqrt(ktmp)
-  
-  kmax <- max(ktmp)
-  kmin <- min(ktmp + diag(rep(Inf,dim(ktmp)[1])))
-  kmea <- mean(ktmp)
-  lsmin <- log2(kmin)
-  lsmax <- log2(kmax)
-  midmax <- min(c(2*kmea, kmax))
-  midmin <- max(c(kmea/2,kmin))
-  rtmp <- c(seq(midmin,0.9*kmea,0.05*kmea), seq(kmea,midmax,0.08*kmea))
-  if ((lsmax - (Re(log2(midmax))+0.5)) < 0.5){
-    step <- (lsmax - (Re(log2(midmax))+0.5))}else
-    {step <- 0.5}
-  if (((Re(log2(midmin))-0.5)-lsmin) < 0.5 ) stepm <-  ((Re(log2(midmin))-0.5) - lsmin) else stepm <- 0.5
-  
-  tmpsig <- c(2^(seq(lsmin,(Re(log2(midmin))-0.5), stepm)), rtmp, 2^(seq(Re(log2(midmax))+0.5, lsmax,step)))
-  diss <- matrix(rep(Inf,length(tmpsig)*nc),ncol=nc)
-  
-  for (i in 1:length(tmpsig)){
-    ka <- exp((-(ktmp^2))/(2*(tmpsig[i]^2)))
-    diag(ka) <- 0
-    
-    d <- 1/sqrt(rowSums(ka))
-    
-    if(!any(d==Inf) && !any(is.na(d))&& (max(d)[1]-min(d)[1] < 10^4))
-    {
-      l <- d * ka %*% diag(d)
-      xi <- eigen(l,symmetric=TRUE)$vectors[,1:nc]
-      yi <- xi/sqrt(rowSums(xi^2))
-      res <- kmeans(yi, centers, iterations)
-      diss[i,] <- res$withinss
-    }
-  }
-  
-  ms <- which.min(rowSums(diss))
-  kernel <- rbfdot((tmpsig[ms]^(-2))/2)
-  
-  ## Compute Affinity Matrix
-  km <- kernelMatrix(kernel, x)
-
-  ##
-  if(is(kernel)[1] == "rbfkernel")
-    diag(km) <- 0
-  
-  d <- 1/sqrt(rowSums(km))
-  l <- d * km %*% diag(d)
-  xi <- eigen(l)$vectors[,1:nc]
-  yi <- xi/sqrt(rowSums(xi^2))
-  res <- kmeans(yi, centers, iterations)
-  
-  ##return
-  cent <- matrix(unlist(lapply(1:nc,ll<- function(l){colMeans(x[which(res$cluster==l), ,drop=FALSE])})),ncol=dim(x)[2], byrow=TRUE)
-  
-  withss <- unlist(lapply(1:nc,ll<- function(l){sum((x[which(res$cluster==l),, drop=FALSE] - cent[l,])^2)}))
-  names(res$cluster) <- rown
-  mylist<-list(myData=res$cluster,clusters = res$size,withinss=withss)
-  #myData contains the cluster group of each data point
-  #clusters contains the number of points in each clusters
-  return(mylist)
-}
-
-set.seed(1)
-cluster_tfidf <- myspectralCluster(as.matrix(dtm_tfidf), 
-                       centers=length(unique(Data[[1]]$AuthorID)))
-cluster_ntf <- myspectralCluster(as.matrix(dtm_ntf), 
-                       centers=length(unique(Data[[1]]$AuthorID)))
 ```
 
 ```{r evaluation}
-source('~/Dropbox/Project4_WhoIsWho/lib/evaluation_measures.R')
-matching_matrix_hclust <- matching_matrix(AKumar$AuthorID,result_hclust)
-performance_hclust <- performance_statistics(matching_matrix_hclust)
-matching_matrix_sclust <- matching_matrix(AKumar$AuthorID,result_sclust)
-performance_sclust <- performance_statistics(matching_matrix_sclust)
-compare_df <- data.frame(method=c("sClust","hClust"),
-                         precision=c(performance_sclust$precision, performance_hclust$precision),
-                         recall=c(performance_sclust$recall, performance_hclust$recall),
-                         f1=c(performance_sclust$f1, performance_hclust$f1),
-                         accuracy=c(performance_sclust$accuracy, performance_hclust$accuracy),
-                         time=c(time_sclust,time_hclust))
-kable(compare_df,caption="Comparision of performance for two clustering methods",digits = 2)
+source('/Users/apple/Documents/R/Spr2017-proj4-team10/lib/evaluation_measures.R')
+performance_sclust<-function(i){
+  matching_matrix_ntf <- matching_matrix(Data[[i]]$AuthorID,result[[i]]$c_ntf)
+  performance_ntf <- performance_statistics(matching_matrix_ntf)
+  matching_matrix_tfidf <- matching_matrix(Data[[i]]$AuthorID,result[[i]]$c_tfidf)
+  performance_tfidf <- performance_statistics(matching_matrix_tfidf)
+  return(list(performance_tfidf,performance_ntf))
+}
+
+for(i in 1:length(file_names)){
+  print(as.data.frame(performance_sclust(i)))
+}
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
