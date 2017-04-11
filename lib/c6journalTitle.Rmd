@@ -1,0 +1,611 @@
+---
+title: "JournalTitle"
+author: "Jinru Xue jx2291"
+date: "April 10, 2017"
+output: html_document
+---
+
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(text2vec, dplyr, qlcMatrix, kernlab, knitr)
+setwd("~/Documents/ADS/Spr2017-proj4-team10")
+load("../output/text.Rdata")
+```
+
+```{r}
+AGupta<-Data[[1]]
+it_train <- itoken(AGupta$Journal, 
+             preprocessor = tolower, 
+             tokenizer = word_tokenizer,
+             ids = AGupta$PaperID,
+             # turn off progressbar because it won't look nice in rmd
+             progressbar = FALSE)
+vocab <- create_vocabulary(it_train, stopwords = c("a", "an", "the", "in", "on",
+                                                   "at", "of"))
+
+vocab
+```
+
+```{r}
+vectorizer <- vocab_vectorizer(vocab)
+dtm_train <- create_dtm(it_train, vectorizer)
+```
+
+```{r}
+dim(dtm_train)
+```
+```{r}
+tfidf <- TfIdf$new()
+dtm_train_tfidf <- fit_transform(dtm_train, tfidf)
+```
+
+```{r}
+start.time <- Sys.time()
+result_sclust <- specc(as.matrix(dtm_train_tfidf), 
+                       centers=length(unique(AGupta$AuthorID)))
+end.time <- Sys.time()
+time_sclust <- end.time - start.time
+table(result_sclust)
+```
+
+```{r}
+start.time <- Sys.time()
+docsdissim <- cosSparse(t(dtm_train_tfidf))
+rownames(docsdissim) <- c(1:nrow(dtm_train_tfidf))
+colnames(docsdissim) <- c(1:nrow(dtm_train_tfidf))
+#compute pairwise cosine similarities using cosSparse function in package qlcMatrix
+h <- hclust(as.dist(docsdissim), method = "ward.D")
+result_hclust <- cutree(h,length(unique(AGupta$AuthorID)))
+end.time <- Sys.time()
+time_hclust <- end.time - start.time
+table(result_hclust)
+```
+
+```{r}
+start.time <- Sys.time()
+
+## initialize
+source("../lib/customized_function_journal.R")
+source("../lib/em_test5.R")
+dtm<-dtm_train_tfidf
+n<-nrow(dtm)
+k <- length(unique(AGupta$AuthorID))
+M_p<-M_prod(1,tao=1,n)
+tag<-ini(M_p)
+tag_ini<-tag
+
+
+## em initialization
+size<-0.001
+c<-M_p
+n<-nrow(dtm)  ## number of papers 244
+m<-ncol(dtm)  ## 666
+A<-rep(1,m)  ## 666 * 666
+eta <- 0.1 ## need tune later
+distance<-rep(10000,length(unique(tag)))
+D_xx<-matrix(ncol=n,nrow=n)  ## 244 * 244
+D_xx_deriv<-array(NA,c(n,n,m))  ## 244 * 244 * 666
+
+## em
+iter<-1
+while(sum(distance) > size)
+  {
+    ##### count D_xx
+
+    A.mat <- diag(sqrt(A),m,m)
+    part<-cosSparse(t(dtm %*% A.mat))
+    D_xx<- 1 - part
+    
+    ##### update researcher representative(cluster centers)
+    
+    uni.tag<-unique(tag) 
+    if (exists("y_h_former")){
+      y_h_former<-y_h}else{
+        y_h_former<-matrix(0,length(uni.tag),ncol(dtm))}
+    df<-data.frame(as.matrix(dtm),tag)
+    y_h<-aggregate(df,by=list(tag),mean)[,1:m]
+    
+    
+    
+    ##### adjust for x_i's tag
+    
+    for (i in 1:n)  
+    {
+      ## input : initialized cluster(tag)
+      
+      f.xi<-rep(NA,length(uni.tag))  ## f for trying x_i's all tags.
+      j=1
+      for (k in uni.tag)   ## substitute x_i's tag by tag "k"
+      {
+        newtag <- tag
+        newtag[i]<-k
+        f.xi[j]<-f(tagvec=newtag,paperindex=i,n0=n)   
+        #f.xi[j] <- distance.xy(paper_index=i,tag.vec=newtag)
+        j<-j+1
+      }
+      tag[i]<-uni.tag[which.min(f.xi)]
+    }
+    
+    
+    
+    ##### update a_mm
+    
+    #count ||x_i||_A
+    
+    part0<-rep(NA,n)
+    A.mat <- diag(sqrt(A),m,m)
+    ax <- dtm %*% A.mat # 244 * 666
+    for (i in 1:dim(ax)[1])
+    {
+      part0[i] <- dist(rbind(ax[i,],rep(0,m)), method = "euclidean")
+    }
+    
+    for (i in 1:n){
+      for (j in i:n){
+        part1<-rep(NA,m)
+        part1<- dtm[i,]^2 * part0[j]^2 + dtm[j,]^2 * part0[i]^2
+        D_xx_deriv[i,j,]<- dtm[i,]*dtm[j,]*(part0[i]* part0[j])- part1 * part[i,j]/2
+        D_xx_deriv[i,j,]<-D_xx_deriv[i,j,] / (part0[i]^2 * part0[j]^2)
+        D_xx_deriv[j,i,]<-D_xx_deriv[i,j,]
+      }}
+
+  
+    for (mm in 1:m)
+    {
+      uni.tag<-unique(tag)
+      indicate<- 1- class.ind(tag) %*% t(class.ind(tag))
+      deriv.f<- sum( D_xx_deriv[,,m] * M_p * indicate )
+      A[mm] <- A[mm] + eta * deriv.f
+    }
+    
+    ##### stop-iteration condition 
+    
+    
+    ord.y_h<-y_h[order(y_h[,1]),]
+    ord.y_h_former<-y_h_former[order(y_h_former[,1]),]
+    
+    for (i in 1:nrow(ord.y_h))
+    {
+      distance[i]<-dist(rbind(ord.y_h[i,],ord.y_h_former[i,]), method= "euclidian")
+    }
+    
+    print(iter)
+    iter<-iter+1
+   
+}
+
+result_em<-tag
+end.time <- Sys.time()
+time_em <- end.time - start.time
+
+## time spent
+time_em
+
+## row number of current data
+n
+```
+
+```{r}
+source('../lib/evaluation_measures.R')
+matching_matrix_hclust <- matching_matrix(AGupta$AuthorID,result_hclust)
+performance_hclust <- performance_statistics(matching_matrix_hclust)
+matching_matrix_sclust <- matching_matrix(AGupta$AuthorID,result_sclust)
+performance_sclust <- performance_statistics(matching_matrix_sclust)
+compare_df <- data.frame(method=c("sClust","hClust"),
+                         precision=c(performance_sclust$precision, performance_hclust$precision),
+                         recall=c(performance_sclust$recall, performance_hclust$recall),
+                         f1=c(performance_sclust$f1, performance_hclust$f1),
+                         accuracy=c(performance_sclust$accuracy, performance_hclust$accuracy),
+                         time=c(time_sclust,time_hclust))
+kable(compare_df,caption="Comparision of performance for two clustering methods",digits = 2)
+
+em_test<-function(tag1)
+{
+  source('../lib/evaluation_measures.R')
+  truth<-AGupta$AuthorID
+  #truth<-AKumar$AuthorID[1:10]
+  matching_matrix_p6 <- matching_matrix(truth,tag1)
+  performance_p6 <- performance_statistics(matching_matrix_p6)
+  return(performance_p6)
+}
+
+
+
+## result for initialization 
+em_test(tag_ini)
+## result for em
+em_test(result_em)
+```
+
+# AKumar
+```{r}
+load("../output/text.Rdata")
+AKumar<-Data[[2]]
+it_train <- itoken(AKumar$Journal, 
+             preprocessor = tolower, 
+             tokenizer = word_tokenizer,
+             ids = AKumar$PaperID,
+             # turn off progressbar because it won't look nice in rmd
+             progressbar = FALSE)
+vocab <- create_vocabulary(it_train, stopwords = c("a", "an", "the", "in", "on",
+                                                   "at", "of"))
+
+vocab
+```
+```{r}
+vectorizer <- vocab_vectorizer(vocab)
+dtm_train <- create_dtm(it_train, vectorizer)
+dim(dtm_train)
+```
+```{r}
+tfidf <- TfIdf$new()
+dtm_train_tfidf <- fit_transform(dtm_train, tfidf)
+start.time <- Sys.time()
+result_sclust <- specc(as.matrix(dtm_train_tfidf), 
+                       centers=length(unique(AKumar$AuthorID)))
+end.time <- Sys.time()
+time_sclust <- end.time - start.time
+table(result_sclust)
+```
+```{r}
+start.time <- Sys.time()
+docsdissim <- cosSparse(t(dtm_train_tfidf))
+rownames(docsdissim) <- c(1:nrow(dtm_train_tfidf))
+colnames(docsdissim) <- c(1:nrow(dtm_train_tfidf))
+#compute pairwise cosine similarities using cosSparse function in package qlcMatrix
+h <- hclust(as.dist(docsdissim), method = "ward.D")
+result_hclust <- cutree(h,length(unique(AKumar$AuthorID)))
+end.time <- Sys.time()
+time_hclust <- end.time - start.time
+table(result_hclust)
+```
+
+```{r}
+start.time <- Sys.time()
+
+## initialize
+source("../lib/customized_function_journal.R")
+source("../lib/em_test5.R")
+dtm<-dtm_train_tfidf
+n<-nrow(dtm)
+k <- length(unique(AKumar$AuthorID))
+M_p<-M_prod(1,tao=1,n)
+tag<-ini(M_p)
+tag_ini<-tag
+
+
+## em initialization
+size<-0.001
+c<-M_p
+n<-nrow(dtm)  ## number of papers 244
+m<-ncol(dtm)  ## 666
+A<-rep(1,m)  ## 666 * 666
+eta <- 0.1 ## need tune later
+distance<-rep(10000,length(unique(tag)))
+D_xx<-matrix(ncol=n,nrow=n)  ## 244 * 244
+D_xx_deriv<-array(NA,c(n,n,m))  ## 244 * 244 * 666
+
+## em
+iter<-1
+while(sum(distance) > size)
+  {
+    ##### count D_xx
+
+    A.mat <- diag(sqrt(A),m,m)
+    part<-cosSparse(t(dtm %*% A.mat))
+    D_xx<- 1 - part
+    
+    ##### update researcher representative(cluster centers)
+    
+    uni.tag<-unique(tag) 
+    if (exists("y_h_former")){
+      y_h_former<-y_h}else{
+        y_h_former<-matrix(0,length(uni.tag),ncol(dtm))}
+    df<-data.frame(as.matrix(dtm),tag)
+    y_h<-aggregate(df,by=list(tag),mean)[,1:m]
+    
+    
+    
+    ##### adjust for x_i's tag
+    
+    for (i in 1:n)  
+    {
+      ## input : initialized cluster(tag)
+      
+      f.xi<-rep(NA,length(uni.tag))  ## f for trying x_i's all tags.
+      j=1
+      for (k in uni.tag)   ## substitute x_i's tag by tag "k"
+      {
+        newtag <- tag
+        newtag[i]<-k
+        f.xi[j]<-f(tagvec=newtag,paperindex=i,n0=n)   
+        #f.xi[j] <- distance.xy(paper_index=i,tag.vec=newtag)
+        j<-j+1
+      }
+      tag[i]<-uni.tag[which.min(f.xi)]
+    }
+    
+    
+    
+    ##### update a_mm
+    
+    #count ||x_i||_A
+    
+    part0<-rep(NA,n)
+    A.mat <- diag(sqrt(A),m,m)
+    ax <- dtm %*% A.mat # 244 * 666
+    for (i in 1:dim(ax)[1])
+    {
+      part0[i] <- dist(rbind(ax[i,],rep(0,m)), method = "euclidean")
+    }
+    
+    for (i in 1:n){
+      for (j in i:n){
+        part1<-rep(NA,m)
+        part1<- dtm[i,]^2 * part0[j]^2 + dtm[j,]^2 * part0[i]^2
+        D_xx_deriv[i,j,]<- dtm[i,]*dtm[j,]*(part0[i]* part0[j])- part1 * part[i,j]/2
+        D_xx_deriv[i,j,]<-D_xx_deriv[i,j,] / (part0[i]^2 * part0[j]^2)
+        D_xx_deriv[j,i,]<-D_xx_deriv[i,j,]
+      }}
+
+  
+    for (mm in 1:m)
+    {
+      uni.tag<-unique(tag)
+      indicate<- 1- class.ind(tag) %*% t(class.ind(tag))
+      deriv.f<- sum( D_xx_deriv[,,m] * M_p * indicate )
+      A[mm] <- A[mm] + eta * deriv.f
+    }
+    
+    ##### stop-iteration condition 
+    
+    
+    ord.y_h<-y_h[order(y_h[,1]),]
+    ord.y_h_former<-y_h_former[order(y_h_former[,1]),]
+    
+    for (i in 1:nrow(ord.y_h))
+    {
+      distance[i]<-dist(rbind(ord.y_h[i,],ord.y_h_former[i,]), method= "euclidian")
+    }
+    
+    print(iter)
+    iter<-iter+1
+   
+}
+
+result_em<-tag
+end.time <- Sys.time()
+time_em <- end.time - start.time
+
+## time spent
+time_em
+
+## row number of current data
+n
+```
+
+```{r}
+source('../lib/evaluation_measures.R')
+matching_matrix_hclust <- matching_matrix(AKumar$AuthorID,result_hclust)
+performance_hclust <- performance_statistics(matching_matrix_hclust)
+matching_matrix_sclust <- matching_matrix(AKumar$AuthorID,result_sclust)
+performance_sclust <- performance_statistics(matching_matrix_sclust)
+compare_df <- data.frame(method=c("sClust","hClust"),
+                         precision=c(performance_sclust$precision, performance_hclust$precision),
+                         recall=c(performance_sclust$recall, performance_hclust$recall),
+                         f1=c(performance_sclust$f1, performance_hclust$f1),
+                         accuracy=c(performance_sclust$accuracy, performance_hclust$accuracy),
+                         time=c(time_sclust,time_hclust))
+kable(compare_df,caption="Comparision of performance for two clustering methods",digits = 2)
+
+em_test<-function(tag1)
+{
+  source('../lib/evaluation_measures.R')
+  truth<-AKumar$AuthorID
+  #truth<-AKumar$AuthorID[1:10]
+  matching_matrix_p6 <- matching_matrix(truth,tag1)
+  performance_p6 <- performance_statistics(matching_matrix_p6)
+  return(performance_p6)
+}
+
+
+
+## result for initialization 
+em_test(tag_ini)
+## result for em
+em_test(result_em)
+```
+
+# JMartin:
+```{r}
+load("../output/text.Rdata")
+JMartin<-Data[[6]]
+it_train <- itoken(JMartin$Journal, 
+             preprocessor = tolower, 
+             tokenizer = word_tokenizer,
+             ids = JMartin$PaperID,
+             # turn off progressbar because it won't look nice in rmd
+             progressbar = FALSE)
+vocab <- create_vocabulary(it_train, stopwords = c("a", "an", "the", "in", "on",
+                                                   "at", "of"))
+
+vocab
+```
+
+```{r}
+vectorizer <- vocab_vectorizer(vocab)
+dtm_train <- create_dtm(it_train, vectorizer)
+dim(dtm_train)
+```
+```{r}
+tfidf <- TfIdf$new()
+dtm_train_tfidf <- fit_transform(dtm_train, tfidf)
+start.time <- Sys.time()
+result_sclust <- specc(as.matrix(dtm_train_tfidf), 
+                       centers=length(unique(JMartin$AuthorID)))
+end.time <- Sys.time()
+time_sclust <- end.time - start.time
+table(result_sclust)
+```
+
+
+
+```{r}
+start.time <- Sys.time()
+
+## initialize
+source("../lib/customized_function_journal.R")
+source("../lib/em_test5.R")
+dtm<-dtm_train_tfidf
+n<-nrow(dtm)
+k <- length(unique(JMartin$AuthorID))
+M_p<-M_prod(1,tao=1,n)
+tag<-ini(M_p)
+tag_ini<-tag
+
+
+## em initialization
+size<-0.001
+c<-M_p
+n<-nrow(dtm)  ## number of papers 244
+m<-ncol(dtm)  ## 666
+A<-rep(1,m)  ## 666 * 666
+eta <- 0.1 ## need tune later
+distance<-rep(10000,length(unique(tag)))
+D_xx<-matrix(ncol=n,nrow=n)  ## 244 * 244
+D_xx_deriv<-array(NA,c(n,n,m))  ## 244 * 244 * 666
+
+## em
+iter<-1
+while(sum(distance) > size)
+  {
+    ##### count D_xx
+
+    A.mat <- diag(sqrt(A),m,m)
+    part<-cosSparse(t(dtm %*% A.mat))
+    D_xx<- 1 - part
+    
+    ##### update researcher representative(cluster centers)
+    
+    uni.tag<-unique(tag) 
+    if (exists("y_h_former")){
+      y_h_former<-y_h}else{
+        y_h_former<-matrix(0,length(uni.tag),ncol(dtm))}
+    df<-data.frame(as.matrix(dtm),tag)
+    y_h<-aggregate(df,by=list(tag),mean)[,1:m]
+    
+    
+    
+    ##### adjust for x_i's tag
+    
+    for (i in 1:n)  
+    {
+      ## input : initialized cluster(tag)
+      
+      f.xi<-rep(NA,length(uni.tag))  ## f for trying x_i's all tags.
+      j=1
+      for (k in uni.tag)   ## substitute x_i's tag by tag "k"
+      {
+        newtag <- tag
+        newtag[i]<-k
+        f.xi[j]<-f(tagvec=newtag,paperindex=i,n0=n)   
+        #f.xi[j] <- distance.xy(paper_index=i,tag.vec=newtag)
+        j<-j+1
+      }
+      tag[i]<-uni.tag[which.min(f.xi)]
+    }
+    
+    
+    
+    ##### update a_mm
+    
+    #count ||x_i||_A
+    
+    part0<-rep(NA,n)
+    A.mat <- diag(sqrt(A),m,m)
+    ax <- dtm %*% A.mat # 244 * 666
+    for (i in 1:dim(ax)[1])
+    {
+      part0[i] <- dist(rbind(ax[i,],rep(0,m)), method = "euclidean")
+    }
+    
+    for (i in 1:n){
+      for (j in i:n){
+        part1<-rep(NA,m)
+        part1<- dtm[i,]^2 * part0[j]^2 + dtm[j,]^2 * part0[i]^2
+        D_xx_deriv[i,j,]<- dtm[i,]*dtm[j,]*(part0[i]* part0[j])- part1 * part[i,j]/2
+        D_xx_deriv[i,j,]<-D_xx_deriv[i,j,] / (part0[i]^2 * part0[j]^2)
+        D_xx_deriv[j,i,]<-D_xx_deriv[i,j,]
+      }}
+
+  
+    for (mm in 1:m)
+    {
+      uni.tag<-unique(tag)
+      indicate<- 1- class.ind(tag) %*% t(class.ind(tag))
+      deriv.f<- sum( D_xx_deriv[,,m] * M_p * indicate )
+      A[mm] <- A[mm] + eta * deriv.f
+    }
+    
+    ##### stop-iteration condition 
+    
+    
+    ord.y_h<-y_h[order(y_h[,1]),]
+    ord.y_h_former<-y_h_former[order(y_h_former[,1]),]
+    
+    for (i in 1:nrow(ord.y_h))
+    {
+      distance[i]<-dist(rbind(ord.y_h[i,],ord.y_h_former[i,]), method= "euclidian")
+    }
+    
+    print(tag)
+    iter<-iter+1
+   
+}
+
+result_em<-tag
+end.time <- Sys.time()
+time_em <- end.time - start.time
+
+## time spent
+time_em
+
+## row number of current data
+n
+```
+
+
+```{r}
+source('../lib/evaluation_measures.R')
+matching_matrix_hclust <- matching_matrix(JMartin$AuthorID,result_hclust)
+performance_hclust <- performance_statistics(matching_matrix_hclust)
+matching_matrix_sclust <- matching_matrix(JMartin$AuthorID,result_sclust)
+performance_sclust <- performance_statistics(matching_matrix_sclust)
+compare_df <- data.frame(method=c("sClust","hClust"),
+                         precision=c(performance_sclust$precision, performance_hclust$precision),
+                         recall=c(performance_sclust$recall, performance_hclust$recall),
+                         f1=c(performance_sclust$f1, performance_hclust$f1),
+                         accuracy=c(performance_sclust$accuracy, performance_hclust$accuracy),
+                         time=c(time_sclust,time_hclust))
+kable(compare_df,caption="Comparision of performance for two clustering methods",digits = 2)
+```
+
+```{r}
+em_test<-function(tag1)
+{
+  source('../lib/evaluation_measures.R')
+  truth<-JMartin$AuthorID
+  #truth<-AKumar$AuthorID[1:10]
+  matching_matrix_p6 <- matching_matrix(truth,tag1)
+  performance_p6 <- performance_statistics(matching_matrix_p6)
+  return(performance_p6)
+}
+
+
+
+## result for initialization 
+em_test(tag_ini)
+## result for em
+em_test(result_em)
+```
+
