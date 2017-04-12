@@ -1,0 +1,150 @@
+---
+title: "JLee"
+author: "Jinru Xue jx2291"
+date: "April 11, 2017"
+output: html_document
+---
+
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(text2vec, dplyr, qlcMatrix, kernlab, knitr)
+source("../lib/customized_function_journal.R")
+source("../lib/em_test5.R")
+load("../output/paper_tfidf.Rdata")
+load("../output/text.Rdata")
+dtm<-tfidf_paper$SLee.Rdata   ### change the name here
+truth<-Data[[13]]$AuthorID  ### change the number here
+k <- length(unique(truth))
+
+n<-nrow(dtm)
+M_p<-M_prod(13,tao=1,n)   ### change the number here
+tag<-ini(M_p)
+tag_ini<-tag
+```
+
+
+```{r}
+start.time <- Sys.time()
+## em initialization
+size<-0.001
+c<-M_p
+n<-nrow(dtm)  ## number of papers 244
+m<-ncol(dtm)  ## 666
+A<-rep(1,m)  ## 666 * 666
+eta <- 0.1 ## need tune later
+distance<-rep(10000,length(unique(tag)))
+D_xx<-matrix(ncol=n,nrow=n)  ## 244 * 244
+D_xx_deriv<-array(NA,c(n,n,m))  ## 244 * 244 * 666
+
+## em
+iter<-1
+while(sum(distance) > size)
+  {
+    ##### count D_xx
+
+    A.mat <- diag(sqrt(A),m,m)
+    part<-cosSparse(t(dtm %*% A.mat))
+    D_xx<- 1 - part
+    
+    ##### update researcher representative(cluster centers)
+    
+    uni.tag<-unique(tag) 
+    if (exists("y_h_former")){
+      y_h_former<-y_h}else{
+        y_h_former<-matrix(0,length(uni.tag),ncol(dtm))}
+    df<-data.frame(as.matrix(dtm),tag)
+    y_h<-aggregate(df,by=list(tag),mean)[,1:m]
+    
+    
+    
+    ##### adjust for x_i's tag
+    
+    for (i in 1:n)  
+    {
+      ## input : initialized cluster(tag)
+      
+      f.xi<-rep(NA,length(uni.tag))  ## f for trying x_i's all tags.
+      j=1
+      for (k in uni.tag)   ## substitute x_i's tag by tag "k"
+      {
+        newtag <- tag
+        newtag[i]<-k
+        f.xi[j]<-f(tagvec=newtag,paperindex=i,n0=n)   
+        #f.xi[j] <- distance.xy(paper_index=i,tag.vec=newtag)
+        j<-j+1
+      }
+      tag[i]<-uni.tag[which.min(f.xi)]
+    }
+    
+    
+    
+    ##### update a_mm
+    
+    #count ||x_i||_A
+    
+    part0<-rep(NA,n)
+    A.mat <- diag(sqrt(A),m,m)
+    ax <- dtm %*% A.mat # 244 * 666
+    for (i in 1:dim(ax)[1])
+    {
+      part0[i] <- dist(rbind(ax[i,],rep(0,m)), method = "euclidean")
+    }
+    
+    for (i in 1:n){
+      for (j in i:n){
+        part1<-rep(NA,m)
+        part1<- dtm[i,]^2 * part0[j]^2 + dtm[j,]^2 * part0[i]^2
+        D_xx_deriv[i,j,]<- dtm[i,]*dtm[j,]*(part0[i]* part0[j])- part1 * part[i,j]/2
+        D_xx_deriv[i,j,]<-D_xx_deriv[i,j,] / (part0[i]^2 * part0[j]^2)
+        D_xx_deriv[j,i,]<-D_xx_deriv[i,j,]
+      }}
+
+  
+    for (mm in 1:m)
+    {
+      uni.tag<-unique(tag)
+      indicate<- 1- class.ind(tag) %*% t(class.ind(tag))
+      deriv.f<- sum( D_xx_deriv[,,m] * M_p * indicate )
+      A[mm] <- A[mm] + eta * deriv.f
+    }
+    
+    ##### stop-iteration condition 
+    
+    
+    ord.y_h<-y_h[order(y_h[,1]),]
+    ord.y_h_former<-y_h_former[order(y_h_former[,1]),]
+    
+    for (i in 1:nrow(ord.y_h))
+    {
+      distance[i]<-dist(rbind(ord.y_h[i,],ord.y_h_former[i,]), method= "euclidian")
+    }
+    
+    print(tag)
+    #iter<-iter+1
+    source('../lib/evaluation_measures.R')
+    truth<-AKumar$AuthorID
+    #truth<-AKumar$AuthorID[1:10]
+
+
+    ## result for initialization 
+    #matching_matrix_p6 <- matching_matrix(truth,tag_ini)
+    #performance_p6 <- performance_statistics(matching_matrix_p6)
+    #print(performance_p6)
+
+    ## result for em
+    matching_matrix_p6 <- matching_matrix(truth,tag)
+    performance_p6 <- performance_statistics(matching_matrix_p6)
+    print(performance_p6)
+   
+}
+
+result_em<-tag
+end.time <- Sys.time()
+time_em <- end.time - start.time
+
+## time spent
+time_em
+
+## row number of current data
+n
+```
