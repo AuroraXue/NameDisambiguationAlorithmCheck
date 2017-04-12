@@ -39,7 +39,9 @@ AKumar$PaperNO <- sub(".*_(\\w*)\\s.*", "\\1", AKumar$Coauthor)
 
 # delete "<" in AKumar$Coauthor, you may need to further process the coauthor
 # term depending on the method you are using
-AKumar$Coauthor <- gsub("<","",sub("^.*?\\s","", AKumar$Coauthor))
+#AKumar$Coauthor <- gsub("<","",sub("^.*?\\s","",AKumar$Coauthor))
+
+AKumar$Coauthor <- gsub("<","",sub("^.*?\\s","",AKumar$Coauthor))
 # delete "<" in AKumar$Paper
 AKumar$Paper <- gsub("<","",AKumar$Paper)
 # add PaperID for furthur use, you may want to combine all the nameset files and 
@@ -65,7 +67,7 @@ To compute TF-IDF, we first need to construct a document-term matrix (DTM). In o
 
 Let’s first create a vocabulary-based DTM. Here we collect unique terms from all documents and mark each of them with a unique ID using the  `create_vocabulary()` function. We use an iterator to create the vocabulary.
 ```{r}
-it_train <- itoken(AKumar$Paper, 
+it_train <- itoken(AKumar$Coauthor, 
              preprocessor = tolower, 
              tokenizer = word_tokenizer,
              ids = AKumar$PaperID,
@@ -110,7 +112,7 @@ Following suggestion in the paper, we carry out spectral clustering on the Gram 
 ```{r}
 start.time <- Sys.time()
 result_sclust <- specc(as.matrix(dtm_train_tfidf), 
-                       centers=length(unique(AKumar$AuthorID)))
+                       centers=length(unique(JMartin$AuthorID)))
 end.time <- Sys.time()
 time_sclust <- end.time - start.time
 table(result_sclust)
@@ -133,20 +135,45 @@ table(result_hclust)
 
 ## method 2: em algorithm
 
-```{r}
-start.time <- Sys.time()
+Based on the unified probabilistic model using Hidden Markov Random Fields (HMRF) in paper 6, we used the model incorporating c6 constraint and a parameterized-distance measure to do the clustering through EM algorithm. 
 
+
+C6 constraint is one of the constraints defined between two papers pi and pj...
+
+#### remember here is a parameter τ ####
+#### introduce the constrain matrix construction here ####
+...using the function `M_prod()` defined in `customized_function.R`... 
+
+
+
+After calculating the C6 constraint matrix,we followed the EM process to update tags for every paper to minimize the objective function in each iteration until the clusters stop changing.
+
+
+For initialization of our EM framework, we first cluster publications into disjoint groups based on the constraints over them.
+
+
+```{r}
 ## initialize
 source("../lib/customized_function.R")
 source("../lib/em_test5.R")
+#load("../output/paper_tfidf.Rdata")
+#load("../output/text.Rdata")
+#dtm<-tfidf_paper$AKumar.Rdata   ### change the name here
+#k <- length(unique(truth))
+#truth<-Data[[6]]$AuthorID  ### change the number here
+
 dtm<-dtm_train_tfidf
 n<-nrow(dtm)
-k <- length(unique(AKumar$AuthorID))
-M_p<-M_prod(2,tao=1)
+truth<-AKumar$AuthorID
+k <- length(unique(AKumar$AuthorID)) 
+M_p<-M_prod(6,tao=1,n)   ### change the number here
 tag<-ini(M_p)
 tag_ini<-tag
+```
 
 
+```{r}
+start.time <- Sys.time()
 ## em initialization
 size<-0.001
 c<-M_p
@@ -241,8 +268,22 @@ while(sum(distance) > size)
       distance[i]<-dist(rbind(ord.y_h[i,],ord.y_h_former[i,]), method= "euclidian")
     }
     
-    print(iter)
-    iter<-iter+1
+    #print(iter)
+    #iter<-iter+1
+    source('../lib/evaluation_measures.R')
+    truth<-AKumar$AuthorID
+    #truth<-AKumar$AuthorID[1:10]
+
+
+    ## result for initialization 
+    #matching_matrix_p6 <- matching_matrix(truth,tag_ini)
+    #performance_p6 <- performance_statistics(matching_matrix_p6)
+    #print(performance_p6)
+
+    ## result for em
+    matching_matrix_p6 <- matching_matrix(truth,tag)
+    performance_p6 <- performance_statistics(matching_matrix_p6)
+    print(performance_p6)
    
 }
 
@@ -279,9 +320,9 @@ $$
 
 ```{r}
 source('../lib/evaluation_measures.R')
-matching_matrix_hclust <- matching_matrix(AKumar$AuthorID,result_hclust)
+matching_matrix_hclust <- matching_matrix(JMartin$AuthorID,result_hclust)
 performance_hclust <- performance_statistics(matching_matrix_hclust)
-matching_matrix_sclust <- matching_matrix(AKumar$AuthorID,result_sclust)
+matching_matrix_sclust <- matching_matrix(JMartin$AuthorID,result_sclust)
 performance_sclust <- performance_statistics(matching_matrix_sclust)
 compare_df <- data.frame(method=c("sClust","hClust"),
                          precision=c(performance_sclust$precision, performance_hclust$precision),
@@ -296,10 +337,20 @@ kable(compare_df,caption="Comparision of performance for two clustering methods"
 ## method 2
 
 ```{r}
+source('../lib/evaluation_measures.R')
+truth<-AKumar$AuthorID
+#truth<-AKumar$AuthorID[1:10]
+
+
 ## result for initialization 
-em_test(tag_ini)
+matching_matrix_p6 <- matching_matrix(truth,tag_ini)
+performance_p6 <- performance_statistics(matching_matrix_p6)
+performance_p6
+
 ## result for em
-em_test(result_em)
+matching_matrix_p6 <- matching_matrix(truth,result_em)
+performance_p6 <- performance_statistics(matching_matrix_p6)
+performance_p6
 ```
 
 
