@@ -63,7 +63,7 @@ distance.xy <-function(tag.vec=tag,paper_index)  ## tag.vec : 244 * 1
 
 ### ver.2 (f)
 
-f<-function(tagvec,paperindex,n0,weight=1)
+f<-function(tagvec,paperindex,n0,weight=0.02)
 {
   indicate<-ifelse(tagvec!=tagvec[paperindex],1,0)
   f<-distance.xy(paper_index=paperindex,tag.vec=tagvec) + weight*sum(D_xx[paperindex,] * indicate * c[paperindex,]) 
